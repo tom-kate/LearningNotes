@@ -1,0 +1,3 @@
+com\tomkate\springcloud\config\ApplicationContextConfig.class
+com\tomkate\springcloud\controller\OrderConsulController.class
+com\tomkate\springcloud\OrderConsulMain80.class

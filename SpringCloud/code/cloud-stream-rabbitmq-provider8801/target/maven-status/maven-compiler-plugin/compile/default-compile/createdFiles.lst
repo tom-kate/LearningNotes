@@ -1,0 +1,4 @@
+com\tomkate\springcloud\StreamMQMain8801.class
+com\tomkate\springcloud\service\impl\MessageProviderImpl.class
+com\tomkate\springcloud\controller\SendMessageController.class
+com\tomkate\springcloud\service\IMessageProvider.class

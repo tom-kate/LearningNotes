@@ -1,0 +1,4 @@
+com\tomkate\springcloud\controller\OrderFeignController.class
+com\tomkate\springcloud\OrderFeignMain80.class
+com\tomkate\springcloud\config\OpenFeignConfig.class
+com\tomkate\springcloud\service\PaymentOpenFeignService.class

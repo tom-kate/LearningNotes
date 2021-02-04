@@ -1,0 +1,5 @@
+com\tomkate\springcloud\alibaba\service\PaymentService.class
+com\tomkate\springcloud\alibaba\controller\CircleBreakerController.class
+com\tomkate\springcloud\alibaba\OrderNacosMain84.class
+com\tomkate\springcloud\alibaba\service\PaymentFallbackService.class
+com\tomkate\springcloud\alibaba\config\ApplicationContextConfig.class

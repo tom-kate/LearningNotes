@@ -1,0 +1,9 @@
+com\tomkate\springcloud\alibaba\domain\Storage.class
+com\tomkate\springcloud\alibaba\SeataStorageServiceApplication2002.class
+com\tomkate\springcloud\alibaba\dao\StorageDao.class
+com\tomkate\springcloud\alibaba\controller\StorageController.class
+com\tomkate\springcloud\alibaba\service\impl\StorageServiceImpl.class
+com\tomkate\springcloud\alibaba\config\MyBatisConfig.class
+com\tomkate\springcloud\alibaba\domain\CommonResult.class
+com\tomkate\springcloud\alibaba\config\DataSourceProxyConfig.class
+com\tomkate\springcloud\alibaba\service\StorageService.class

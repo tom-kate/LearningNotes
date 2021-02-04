@@ -1,0 +1,20 @@
+###consul服务端口号
+server:
+  port: 80
+
+spring:
+  application:
+    name: cloud-consumer-order
+  ####consul注册中心地址
+  cloud:
+    consul:
+      host: 192.168.123.179
+      port: 8500
+      discovery:
+        #hostname: 127.0.0.1
+        service-name: ${spring.application.name}
+        # 健康检测的url，docker环境下需要指定回调地址
+        health-check-url: http://192.168.123.134:80/actuator/health
+
+
+

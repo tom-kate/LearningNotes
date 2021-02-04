@@ -1,0 +1,3 @@
+com\tomkate\springcloud\controller\PaymentController.class
+com\tomkate\springcloud\service\PaymentService.class
+com\tomkate\springcloud\PaymentHystrixMain8001.class
