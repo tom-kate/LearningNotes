@@ -3,9 +3,9 @@ package java.lang;
 /**
  * @author Tom
  * @version 1.0
- * @date 2021/1/21 21:02
+ * @date 2021/2/4 16:17
  */
-public class String {
+public class Stirng {
     static {
         System.out.println("自定义String类");
     }
