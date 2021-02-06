@@ -1168,3 +1168,69 @@ Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
 	at com.tomkate.java.HeapInstanceTest.main(HeapInstanceTest.java:16)
 ````
 
+##### 总结
+
+- 针对幸存者s0，s1区的总结：复制之后有交换，谁空谁是to
+- 关于垃圾回收：频繁在新生区收集，很少在老年代收集，几乎不再永久代和元空间进行收集
+- 新生代采用复制算法的目的：是为了减少内碎片
+
+##### 常用的调优工具
+
+- JDK命令行
+- Eclipse：Memory Analyzer Tool
+- Jconsole
+- Visual VM（实时监控  推荐）
+- Jprofiler（推荐）
+- Java Flight Recorder（实时监控）
+- GCViewer
+- GCEasy
+
+#### MinorGC、MajorGC、FullGC
+
+- Minor GC：新生代的GC
+- Major GC：老年代的GC
+- Full GC：整堆收集，收集整个Java堆和方法区的垃圾收集
+
+>  我们都知道，JVM的调优的一个环节，也就是垃圾收集，我们需要尽量的避免垃圾回收，因为在垃圾回收的过程中，容易出现STW的问题而 Major GC 和 Full GC出现STW的时间，是Minor GC的10倍以上
+
+JVM在进行GC时，并非每次都对上面三个内存区域一起回收的，大部分时候回收的都是指新生代。
+
+针对Hotspot VM的实现，它里面的GC按照回收区域又分为两大种类型：一种是部分收集（Partial GC），一种是整堆收集（FullGC）
+
+* 部分收集：不是完整收集整个Java堆的垃圾收集。其中又分为：
+  * 新生代收集（MinorGC/Young GC）：只是新生代（Eden、S0,S1）的垃圾收集
+  * 老年代收集（MajorGC/Old GC）：只是老年代的圾收集
+    * 目前，只有CMSGC会有单独收集老年代的行为
+    * 注意，很多时候Major GC会和FullGC混淆使用，需要具体分辨是老年代回收还是整堆回收
+  * 混合收集（MixedGC）：收集整个新生代以及部分老年代的垃圾收集
+    * 目前，只有G1 GC会有这种行为
+* 整堆收集（FullGC）：收集整个java堆和方法区的垃圾收集。
+
+##### 年轻代（Minor GC）触发机制
+
+* 当年轻代空间不足时，就会触发MinorGC，这里的年轻代满指的是Eden代满，Survivor满不会引发GC。（每次Minor GC会清理年轻代的内存）
+* 因为Java对象**大多都具备朝生夕灭** 的特性，所以Minor GC非常频繁，一般回收速度也比较快。这一定义既清晰又易于理解
+* Minor GC会引发STW，暂停其它用户的线程，等垃圾回收结束，用户线程才恢复运行
+
+> STW：stop the word
+
+![对象分配过程](images/2021-02-06_190659.png)
+
+##### 老年代GC（Major GC/Full GC）触发机制
+
+* 指发生在老年代的GC，对象从老年代消失时，我们说 “Major Gc” 或 “Full GC” 发生了
+* 出现了MajorGc，经常会伴随至少一次的Minor GC（但非绝对的，在Paralle1 Scavenge收集器的收集策略里就有直接进行MajorGC的策略选择过程）
+  * 也就是在老年代空间不足时，会先尝试触发MinorGC。如果之后空间还不足，则触发Major GC
+* Major GC的速度一般会比MinorGc慢10倍以上，STW的时间更长，如果Major GC后，内存还不足，就报OOM了
+
+##### Full GC触发机制
+
+触发FullGC执行的情况有如下五种
+
+* 调用System.gc（）时，系统建议执行Full GC，但是不必然执行
+* 老年代空间不足
+* 方法区空间不足
+* 通过Minor GC后进入老年代的平均大小大于老年代的可用内存
+* 由Eden区、survivor space0（From Space）区向survivor space1（To Space）区复制时，对象大小大于To Space可用内存，则把该对象转存到老年代，且老年代的可用内存小于该对象大小
+
+说明：**Full GC 是开发或调优中尽量要避免的。这样暂时时间会短一些**
