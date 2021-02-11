@@ -1234,3 +1234,133 @@ JVM在进行GC时，并非每次都对上面三个内存区域一起回收的，
 * 由Eden区、survivor space0（From Space）区向survivor space1（To Space）区复制时，对象大小大于To Space可用内存，则把该对象转存到老年代，且老年代的可用内存小于该对象大小
 
 说明：**Full GC 是开发或调优中尽量要避免的。这样暂时时间会短一些**
+
+##### GC代码实例
+
+模拟OOM异常。不断创建字符串，存放在堆区
+
+````java
+/**
+ * 测试 Minor GC、Major GC、Full GC
+ *
+ * @author Tom
+ * @version 1.0
+ * @date 2021/2/11 12:21
+ */
+public class GCTest {
+    public static void main(String[] args) {
+        int i = 0;
+        ArrayList<String> list = new ArrayList<>();
+        String str = "com.tomkate";
+        try {
+            while (true) {
+                list.add(str);
+                str = str + str;
+                ++i;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("执行次数为：" + i);
+        }
+
+    }
+}
+
+````
+
+设置JVM启动参数
+
+````
+-Xms10m -Xmx10m -XX:+PrintGCDetails
+````
+
+打印log
+
+````
+[GC (Allocation Failure) [PSYoungGen: 2029K->482K(2560K)] 2029K->818K(9728K), 0.0019803 secs] [Times: user=0.00 sys=0.02, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 2320K->488K(2560K)] 2656K->2058K(9728K), 0.0010732 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 1934K->504K(2560K)] 3505K->2778K(9728K), 0.0008983 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (Ergonomics) [PSYoungGen: 1246K->0K(2560K)] [ParOldGen: 6498K->4849K(7168K)] 7745K->4849K(9728K), [Metaspace: 3209K->3209K(1056768K)], 0.0096134 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 0K->0K(2560K)] 4849K->4849K(9728K), 0.0004468 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[Full GC (Allocation Failure) [PSYoungGen: 0K->0K(2560K)] [ParOldGen: 4849K->4831K(7168K)] 4849K->4831K(9728K), [Metaspace: 3209K->3209K(1056768K)], 0.0076483 secs] [Times: user=0.03 sys=0.00, real=0.02 secs] 
+Heap
+ PSYoungGen      total 2560K, used 80K [0x00000000ffd00000, 0x0000000100000000, 0x0000000100000000)
+  eden space 2048K, 3% used [0x00000000ffd00000,0x00000000ffd140e8,0x00000000fff00000)
+  from space 512K, 0% used [0x00000000fff80000,0x00000000fff80000,0x0000000100000000)
+  to   space 512K, 0% used [0x00000000fff00000,0x00000000fff00000,0x00000000fff80000)
+ ParOldGen       total 7168K, used 4831K [0x00000000ff600000, 0x00000000ffd00000, 0x00000000ffd00000)
+  object space 7168K, 67% used [0x00000000ff600000,0x00000000ffab7d50,0x00000000ffd00000)
+ Metaspace       used 3241K, capacity 4496K, committed 4864K, reserved 1056768K
+  class space    used 352K, capacity 388K, committed 512K, reserved 1048576K
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at java.util.Arrays.copyOf(Arrays.java:3332)
+	at java.lang.AbstractStringBuilder.ensureCapacityInternal(AbstractStringBuilder.java:124)
+	at java.lang.AbstractStringBuilder.append(AbstractStringBuilder.java:448)
+	at java.lang.StringBuilder.append(StringBuilder.java:136)
+	at com.tomkate.java.GCTest.main(GCTest.java:20)
+
+Process finished with exit code 1
+
+````
+
+触发OOM的时候，一定是进行了一次Full GC，因为只有在老年代空间不足时候，才会爆出OOM异常
+
+#### 堆空间分代思想
+
+##### 为什么需要把Java堆分代不分代就不能正常工作了吗？
+
+* 经研究，不同对象的生命周期不同。70%-99%的对象是临时对象。
+  * 新生代：有Eden、两块大小相同的Survivor（又称from/to，s0/s1）构成，to总为空。
+  * 老年代：存放新生代中经历过多次GC仍然存活的对象。
+
+![jdk7版本](images/2021-02-11_045621.png)
+
+* 其实不分代完全可以，分代的唯一理由就是优化GC性能。如果没有分代，那所有的对象都在一块，就如同把一个学校的人都关在一个教室。GC的时候要找到哪些对象没用，这样就会对堆的所有区域进行扫描。而很多对象都是朝生夕死的，如果分代的话，把新创建的对象放到某一地方，当GC的时候先把这块存储“朝生夕死”对象的区域进行回收，这样就会腾出很大的空间出来。
+
+![JDK8](images/2021-02-11_143543.png)
+
+#### 内存分配策略（或对象提升（Promotion）规则）
+
+如果对象在Eden出生并经过第一次Minor GC后仍然存活，并且能被Survivor容纳的话，将被移动到survivor空间中，并将对象年龄设为1。对象在survivor区中每熬过一次MinorGC，年龄就增加1岁，当它的年龄增加到一定程度（默认为15岁，其实每个JVM、每个GC都有所不同）时，就会被晋升到老年代
+
+针对不同年龄段的对象分配原则如下所示：
+
+* 优先分配到Eden
+  * 开发中比较长的字符串或者数组，会直接存在老年代，但是因为新创建的对象 都是 朝生夕死的，所以这个大对象可能也很快被回收，但是因为老年代触发Major GC的次数比 Minor GC要更少，因此可能回收起来就会比较慢
+* 大对象直接分配到老年代
+  * 尽量避免程序中出现过多的大对象
+* 长期存活的对象分配到老年代
+* 动态对象年龄判断
+  * 如果survivor区中相同年龄的所有对象大小的总和大于Survivor空间的一半，年龄大于或等于该年龄的对象可以直接进入老年代，无须等到MaxTenuringThreshold 中要求的年龄。
+
+* 空间分配担保： -XX:HandlePromotionFailure
+  * 也就是经过Minor GC后，所有的对象都存活，因为Survivor比较小，所以就需要将Survivor无法容纳的对象，存放到老年代中。
+
+##### 测试：大对象直接进入老年代
+
+````java
+/**
+ * 测试大对象直接进入老年代
+ * <p>
+ * -Xms60m -Xmx60m -XX:NewRatio=2 -XX:SurvivorRatio=8 -XX:+PrintGCDetails
+ *
+ * @author Tom
+ * @version 1.0
+ * @date 2021/2/11 14:49
+ */
+public class YongOldAreaTest {
+    public static void main(String[] args) {
+        byte[] bytes = new byte[1024 * 1024 * 20];
+    }
+}
+````
+
+设置参数
+
+````
+-Xms60m -Xmx60m -XX:NewRatio=2 -XX:SurvivorRatio=8 -XX:+PrintGCDetails
+````
+
+打印日志如下：直接进入老年代 没有GC日志产生
+
+![大对象分配代码](images/2021-02-11_145621.png)
