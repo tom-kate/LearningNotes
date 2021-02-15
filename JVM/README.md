@@ -1364,3 +1364,452 @@ public class YongOldAreaTest {
 打印日志如下：直接进入老年代 没有GC日志产生
 
 ![大对象分配代码](images/2021-02-11_145621.png)
+
+#### 为对象分配内存：TLAB
+
+##### 堆空间都是共享的么？
+
+不一定，因为还有TLAB这个概念，在堆中划分出一块区域，为每个线程所独占
+
+##### 为什么有TLAB（Thread Local Allocation Buffer）？
+
+* TLAB：Thread Local Allocation Buffer，也就是为每个线程单独分配了一个缓冲区
+
+* 堆区是线程共享区域，任何线程都可以访问到堆区中的共享数据
+
+* 由于对象实例的创建在JVM中非常频繁，因此在并发环境下从堆区中划分内存空间是线程不安全的
+
+* 为避免多个线程操作同一地址，需要使用加锁等机制，进而影响分配速度。
+
+##### 什么是TLAB?
+
+* 从内存模型而不是垃圾收集的角度，对Eden区域继续进行划分，JVM为**每个线程分配了一个私有缓存区域**，它包含在Eden空间内。
+
+* 多线程同时分配内存时，使用TLAB可以避免一系列的非线程安全问题，同时还能够提升内存分配的吞吐量，因此我们可以将这种内存分配方式称之为**快速分配策略**。
+
+* 据我所知所有OpenJDK衍生出来的JVM都提供了TLAB的设计。
+
+![TLAB](images/2021-02-15_143709.png)
+
+* 尽管不是所有的对象实例都能够在TLAB中成功分配内存，但**JVM确实是将TLAB作为内存分配的首选**。
+
+* 在程序中，开发人员可以通过选项“-Xx:UseTLAB”设置是否开启TLAB空间。
+
+* 默认情况下，TLAB空间的内存非常小，**仅占有整个Eden空间的1%**，当然我们可以通过选项“-Xx:TLABWasteTargetPercent”设置TLAB空间所占用Eden空间的百分比大小。
+
+* 一旦对象在TLAB空间分配内存失败时，JVM就会尝试着通过**使用加锁机制**确保数据操作的原子性，从而直接在Eden空间中分配内存。
+
+##### TLAB对象分配过程
+
+![TLAB对象分配过程](images/2021-02-15_144523.png)
+
+#### 小结：堆空间的参数设置
+
+- -XX：+PrintFlagsInitial：查看所有的参数的默认初始值
+- -XX：+PrintFlagsFinal：查看所有的参数的最终值（可能会存在修改，不再是初始值）
+- -Xms：初始堆空间内存（默认为物理内存的1/64）
+- -Xmx：最大堆空间内存（默认为物理内存的1/4）
+- -Xmn：设置新生代的大小。（初始值及最大值）
+- -XX:NewRatio：配置新生代与老年代在堆结构的占比
+- -XX:SurvivorRatio：设置新生代中Eden和S0/S1空间的比例
+- -XX:MaxTenuringThreshold：设置新生代垃圾的最大年龄
+- -XX：+PrintGCDetails：输出详细的GC处理日志
+  - 打印gc简要信息：①-Xx：+PrintGC  ② - verbose:gc
+- -XX:HandlePromotionFalilure：是否设置空间分配担保
+
+##### 空间分配担保
+
+在发生Minor GC之前，虚拟机会**检查老年代最大可用的连续空间是否大于新生代所有对象的总空间**。
+
+- 如果大于，则此次Minor GC是安全的
+- 如果小于，则虚拟机会查看-xx:HandlePromotionFailure设置值是否允担保失败。
+  - 如果HandlePromotionFailure=true，那么会继续**检查老年代最大可用连续空间是否大于历次晋升到老年代的对象的平均大小**。
+    - 如果大于，则尝试进行一次Minor GC，但这次Minor GC依然是有风险的；
+    - 如果小于，则改为进行一次Full GC。
+  - 如果HandlePromotionFailure=false，则改为进行一次Full GC。
+
+在JDK6 Update24之后，HandlePromotionFailure参数不会再影响到虚拟机的空间分配担保策略，观察openJDK中的源码变化，虽然源码中还定义了HandlePromotionFailure参数，但是在代码中已经不会再使用它。JDK6 Update 24之后的规则变为**只要老年代的连续空间大于新生代对象总大小**或者**历次晋升的平均大小就会进行Minor GC**，否则将进行FullGC。
+
+#### 堆是分配对象存储的唯一选择吗？
+
+##### 逃逸分析
+
+在《深入理解Java虚拟机》中关于Java堆内存有这样一段描述：
+
+随着JIT编译器的发展与**逃逸分析技术**逐渐成熟，**栈上分配**、**标量替换优化技术**将会导致一些微妙的变化，所有的对象都分配到堆上也渐渐变得不那么“绝对”了。
+
+在Java虚拟机中，对象是在Java堆中分配内存的，这是一个普遍的常识。但是，有一种特殊情况，那就是**如果经过逃逸分析（Escape Analysis）后发现，一个对象并没有逃逸出方法的话，那么就可能被优化成栈上分配**。这样就无需在堆上分配内存，也无须进行垃圾回收了。这也是最常见的堆外存储技术。
+
+此外，前面提到的基于openJDk深度定制的TaoBaovm，其中创新的GCIH（GC invisible heap）技术实现off-heap，将生命周期较长的Java对象从heap中移至heap外，并且GC不能管理GCIH内部的Java对象，以此达到降低GC的回收频率和提升GC的回收效率的目的。
+
+**如何将堆上的对象分配到栈，需要使用逃逸分析手段。**
+
+* 这是一种可以有效减少Java程序中同步负载和内存堆分配压力的跨函数全局数据流分析算法。通过逃逸分析，Java Hotspot编译器能够分析出一个新的对象的引用的使用范围从而决定是否要将这个对象分配到堆上。逃逸分析的基本行为就是分析对象动态作用域：
+  * 当一个对象在方法中被定义后，对象只在方法内部使用，则认为没有发生逃逸。
+  * 当一个对象在方法中被定义后，它被外部方法所引用，则认为发生逃逸。例如作为调用参数传递到其他地方中。
+
+##### 逃逸分析举例
+
+没有发生逃逸的对象，则可以分配到栈上，随着方法执行的结束，栈空间就被移除，每个栈里面包含了很多栈帧，也就是发生逃逸分析
+
+````java
+public void my_method() {
+    V v = new V();
+    // use v
+    // ....
+    v = null;
+}
+````
+
+针对下面的代码
+
+````java
+public static StringBuffer createStringBuffer(String s1, String s2) {
+    StringBuffer sb = new StringBuffer();
+    sb.append(s1);
+    sb.append(s2);
+    return sb;
+}
+````
+
+如果想要StringBuffer sb不发生逃逸，可以这样写
+
+````java
+public static String createStringBuffer(String s1, String s2) {
+    StringBuffer sb = new StringBuffer();
+    sb.append(s1);
+    sb.append(s2);
+    return sb.toString();
+}
+````
+
+完整逃逸分析代码举例
+
+````java
+/**
+ * 逃逸分析
+ * 如何快速的判断是否发生了逃逸分析，大家就看new的对象是否在方法外被调用。
+ *
+ * @author Tom
+ * @version 1.0
+ * @date 2021/2/15 15:17
+ */
+public class EscapeAnalysis {
+    public EscapeAnalysis obj;
+
+    /**
+     * 方法返回EscapeAnalysis对象，发生逃逸
+     *
+     * @return
+     */
+    public EscapeAnalysis getInstance() {
+        return obj == null ? new EscapeAnalysis() : obj;
+    }
+
+    /**
+     * 为成员属性赋值，发生逃逸
+     */
+    public void setObj() {
+        this.obj = new EscapeAnalysis();
+    }
+
+    /**
+     * 对象的作用于仅在当前方法中有效，没有发生逃逸
+     */
+    public void useEscapeAnalysis() {
+        EscapeAnalysis e = new EscapeAnalysis();
+    }
+
+    /**
+     * 引用成员变量的值，发生逃逸
+     */
+    public void useEscapeAnalysis2() {
+        EscapeAnalysis e = getInstance();
+        // getInstance().XXX  发生逃逸
+    }
+}
+````
+
+##### 参数设置
+
+在JDK 1.7 版本之后，HotSpot中默认就已经开启了逃逸分析
+
+如果使用的是较早的版本，开发人员则可以通过：
+
+- 选项“-xx：+DoEscapeAnalysis"显式开启逃逸分析
+- 通过选项“-xx：+PrintEscapeAnalysis"查看逃逸分析的筛选结果
+
+##### 结论
+
+**开发中能使用局部变量的，就不要使用在方法外定义。**
+
+使用逃逸分析，编译器可以对代码做如下优化：
+
+- **栈上分配**：将堆分配转化为栈分配。如果一个对象在子程序中被分配，要使指向该对象的指针永远不会发生逃逸，对象可能是栈上分配的候选，而不是堆上分配
+- **同步省略**：如果一个对象被发现只有一个线程被访问到，那么对于这个对象的操作可以不考虑同步。
+- **分离对象或标量替换**：有的对象可能不需要作为一个连续的内存结构存在也可以被访问到，那么对象的部分（或全部）可以不存储在内存，而是存储在CPU寄存器中。
+
+##### 栈上分配
+
+JIT编译器在编译期间根据逃逸分析的结果，发现如果一个对象并没有逃逸出方法的话，就可能被优化成栈上分配。分配完成后，继续在调用栈内执行，最后线程结束，栈空间被回收，局部变量对象也被回收。这样就无须进行垃圾回收了。
+
+常见的栈上分配的场景
+
+> 在逃逸分析中，已经说明了。分别是给成员变量赋值、方法返回值、实例引用传递。
+
+###### 举例
+
+我们通过举例来说明 开启逃逸分析 和 未开启逃逸分析时候的情况
+
+````java
+/**
+ * 栈上分配
+ * -Xmx1G -Xms1G -XX:-DoEscapeAnalysis -XX:+PrintGCDetails
+ *
+ * @author Tom
+ * @version 1.0
+ * @date 2021/2/15 15:26
+ */
+class User {
+    private String name;
+    private String age;
+    private String gender;
+    private String phone;
+}
+
+public class StackAllocation {
+    public static void main(String[] args) throws InterruptedException {
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < 100000000; i++) {
+            alloc();
+        }
+        long end = System.currentTimeMillis();
+        System.out.println("花费的时间为：" + (end - start) + " ms");
+
+        // 为了方便查看堆内存中对象个数，线程sleep
+        Thread.sleep(10000000);
+    }
+
+    private static void alloc() {
+        // 未发生逃逸
+        User user = new User();
+    }
+}
+````
+
+设置JVM参数，表示未开启逃逸分析
+
+````
+-Xmx1G -Xms1G -XX:-DoEscapeAnalysis -XX:+PrintGCDetails
+````
+
+运行结果，同时还触发了GC操作
+
+````
+[GC (Allocation Failure) [PSYoungGen: 262144K->712K(305664K)] 262144K->720K(1005056K), 0.0011135 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 262856K->712K(305664K)] 262864K->720K(1005056K), 0.0010531 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 262856K->680K(305664K)] 262864K->688K(1005056K), 0.0007803 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 262824K->680K(305664K)] 262832K->688K(1005056K), 0.0010725 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 262824K->696K(305664K)] 262832K->704K(1005056K), 0.0011659 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 262840K->680K(348160K)] 262848K->688K(1047552K), 0.0009799 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 347816K->0K(348160K)] 347824K->644K(1047552K), 0.0016947 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 347136K->0K(348160K)] 347780K->644K(1047552K), 0.0003808 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 347136K->0K(348160K)] 347780K->644K(1047552K), 0.0004810 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+[GC (Allocation Failure) [PSYoungGen: 347136K->128K(348160K)] 347780K->772K(1047552K), 0.0004254 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+花费的时间为：726 ms
+````
+
+然后查看内存的情况，发现有大量的User存储在堆中
+
+![逃逸代码Code1](images/2021-02-15_153559.png)
+
+我们在开启逃逸分析
+
+````
+-Xmx1G -Xms1G -XX:+DoEscapeAnalysis -XX:+PrintGCDetails
+````
+
+然后查看运行时间，我们能够发现花费的时间快速减少，同时不会发生GC操作
+
+````
+花费的时间为：10 ms
+````
+
+在看内存情况，我们发现只有很少的User对象，说明User未发生逃逸，因为它存储在栈中，随着栈的销毁而消失
+
+![逃逸分析Code2](images/2021-02-15_153835.png)
+
+##### 同步省略（锁消除）
+
+* 线程同步的代价是相当高的，同步的后果是降低并发性和性能。
+
+* 在动态编译同步块的时候，JIT编译器可以借助逃逸分析来**判断同步块所使用的锁对象是否只能够被一个线程访问而没有被发布到其他线程。**如果没有，那么JIT编译器在编译这个同步块的时候就会取消对这部分代码的同步。这样就能大大提高并发性和性能。这个取消同步的过程就叫同步省略，也叫**锁消除**。
+
+例如下面的代码
+
+````java
+public void f() {
+    Object hellis = new Object();
+    synchronized(hellis) {
+        System.out.println(hellis);
+    }
+}
+````
+
+代码中对hellis这个对象加锁，但是hellis对象的生命周期只在f()方法中，并不会被其他线程所访问到，所以在JIT编译阶段就会被优化掉，优化成:
+
+````java
+public void f() {
+    Object hellis = new Object();
+	System.out.println(hellis);
+}
+````
+
+![同步省略code](images/2021-02-15_155503.png)
+
+##### 分离对象和标量替换
+
+**标量（scalar）**是指一个无法再分解成更小的数据的数据。Java中的原始数据类型就是标量。
+
+相对的，那些还可以分解的数据叫做**聚合量（Aggregate）**，Java中的对象就是聚合量，因为他可以分解成其他聚合量和标量。
+
+在JIT阶段，如果经过逃逸分析，发现一个对象不会被外界访问的话，那么经过JIT优化，就会把这个对象拆解成若干个其中包含的若干个成员变量来代替。这个过程就是**标量替换**。
+
+````java
+public static void main(String args[]) {
+    alloc();
+}
+class Point {
+    private int x;
+    private int y;
+}
+private static void alloc() {
+    Point point = new Point(1,2);
+    System.out.println("point.x" + point.x + ";point.y" + point.y);
+}
+````
+
+以上代码，经过标量替换后，就会变成
+
+````java
+private static void alloc() {
+    int x = 1;
+    int y = 2;
+    System.out.println("point.x = " + x + "; point.y=" + y);
+}
+````
+
+可以看到，Point这个聚合量经过逃逸分析后，发现他并没有逃逸，就被替换成两个标量了。那么标量替换有什么好处呢？就是可以大大减少堆内存的占用。因为一旦不需要创建对象了，那么就不再需要分配堆内存，在栈上分配。**标量替换为栈上分配提供了很好的基础。**
+
+###### 标量替换参数设置
+
+````
+参数-XX:+EliminateAllocations:开启了标量替换（默认打开），允许将对象打散分配在栈上
+````
+
+###### 举例
+
+````java
+/**
+ * 标量替换测试
+ * -Xmx100m -Xms100m -XX:+DoEscapeAnalysis -XX:+PrintGC -XX:-EliminateAllocations
+ * @author Tom
+ * @version 1.0
+ * @date 2021/2/15 16:05
+ */
+public class ScalarReplace {
+    public static class User {
+        public int id;
+        public String name;
+    }
+
+    public static void alloc() {
+        //未发生逃逸
+        User user = new User();
+        user.id = 5;
+        user.name = "tomkate";
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < 100000000; i++) {
+            alloc();
+        }
+        long end = System.currentTimeMillis();
+        System.out.println("花费的时间为：" + (end - start) + " ms");
+
+        // 为了方便查看堆内存中对象个数，线程sleep
+        Thread.sleep(10000000);
+    }
+}
+````
+
+设置参数如（开启逃逸分析，不开启标量替换）
+
+````
+-Xmx100m -Xms100m -XX:+DoEscapeAnalysis -XX:+PrintGC -XX:-EliminateAllocations
+````
+
+结果如下
+
+````
+[GC (Allocation Failure)  25600K->736K(98304K), 0.0021742 secs]
+[GC (Allocation Failure)  26336K->760K(98304K), 0.0014713 secs]
+[GC (Allocation Failure)  26360K->664K(98304K), 0.0012067 secs]
+[GC (Allocation Failure)  26264K->728K(98304K), 0.0010282 secs]
+[GC (Allocation Failure)  26328K->696K(98304K), 0.0011772 secs]
+[GC (Allocation Failure)  26296K->696K(101376K), 0.0012251 secs]
+[GC (Allocation Failure)  32440K->648K(101376K), 0.0016216 secs]
+[GC (Allocation Failure)  32392K->648K(101376K), 0.0004420 secs]
+花费的时间为：69 ms
+````
+
+开启标量替换
+
+````
+-XX:+EliminateAllocations
+````
+
+未发生Minor GC分配至栈 局部变量表 结果如下
+
+````
+花费的时间为：8 ms
+````
+
+上述代码在主函数中进行了1亿次alloc。调用进行对象创建，由于User对象实例需要占据约16字节的空间，因此累计分配空间达到将近1.5GB。如果堆空间小于这个值，就必然会发生GC。使用如下参数运行上述代码：
+
+````bash
+-server -Xmx100m -Xms100m -XX:+DoEscapeAnalysis -XX:+PrintGC -XX:+EliminateAllocations
+````
+
+这里设置参数如下：
+
+- 参数-server：启动Server模式，因为在server模式下，才可以启用逃逸分析。
+- 参数-XX:+DoEscapeAnalysis：启用逃逸分析
+- 参数-Xmx10m：指定了堆空间最大为10MB
+- 参数-XX:+PrintGC：将打印Gc日志
+- 参数-XX:+EliminateAllocations：开启了标量替换（默认打开），允许将对象打散分配在栈上，比如对象拥有id和name两个字段，那么这两个字段将会被视为两个独立的局部变量进行分配
+
+JDK1.8版本可忽略-server参数，因为jdk1.8 64位下默认为server模式
+
+![版本参数](images/2021-02-15_161825.png)
+
+##### 逃逸分析小结：逃逸分析并不成熟
+
+* 关于逃逸分析的论文在1999年就已经发表了，但直到JDK1.6才有实现，而且这项技术到如今也并不是十分成熟。
+
+* 其根本原因就是**无法保证逃逸分析的性能消耗一定能高于他的消耗。虽然经过逃逸分析可以做标量替换、栈上分配、和锁消除。但是逃逸分析自身也是需要进行一系列复杂的分析的，这其实也是一个相对耗时的过程。**
+* 一个极端的例子，就是经过逃逸分析之后，发现没有一个对象是不逃逸的。那这个逃逸分析的过程就白白浪费掉了。
+
+* 虽然这项技术并不十分成熟，但是它也**是即时编译器优化技术中一个十分重要的手段。**
+* 注意到有一些观点，认为通过逃逸分析，JVM会在栈上分配那些不会逃逸的对象，这在理论上是可行的，但是取决于JVM设计者的选择。据我所知，oracle Hotspot JVM中并未这么做，这一点在逃逸分析相关的文档里已经说明，所以可以明确所有的对象实例都是创建在堆上。
+
+* 目前很多书籍还是基于JDK7以前的版本，JDK已经发生了很大变化，intern字符串的缓存和静态变量曾经都被分配在永久代上，而永久代已经被元数据区取代。但是，intern字符串缓存和静态变量并不是被转移到元数据区，而是直接在堆上分配，所以这一点同样符合前面一点的结论：**对象实例都是分配在堆上**。
+
+#### 堆空间小结
+
+* 年轻代是对象的诞生、成长、消亡的区域，一个对象在这里产生、应用，最后被垃圾回收器收集、结束生命。
+
+* 老年代放置长生命周期的对象，通常都是从survivor区域筛选拷贝过来的Java对象。当然，也有特殊情况，我们知道普通的对象会被分配在TLAB上；如果对象较大，JVM会试图直接分配在Eden其他位置上；如果对象太大，完全无法在新生代找到足够长的连续空闲空间，JVM就会直接分配到老年代。当GC只发生在年轻代中，回收年轻代对象的行为被称为MinorGc。
+
+* 当GC发生在老年代时则被称为MajorGc或者FullGC。一般的，MinorGc的发生频率要比MajorGC高很多，即老年代中垃圾回收发生的频率将大大低于年轻代。
