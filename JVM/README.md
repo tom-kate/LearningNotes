@@ -3495,7 +3495,7 @@ public class StringTest4 {
 }
 ````
 
-![test](images\2021-02-16_195459.png)
+![test](images/2021-02-16_195459.png)
 
 ![图解](images/2021-02-16_195537.png)
 
@@ -3727,7 +3727,7 @@ public class StringNewTset {
 }
 ````
 
-![题目2](images\2021-02-16_211727.png)
+![题目2](images/2021-02-16_211727.png)
 
 ##### 3.intern()面试难题
 
