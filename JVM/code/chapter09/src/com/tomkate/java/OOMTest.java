@@ -23,7 +23,7 @@ public class OOMTest extends ClassLoader {
             for (int i = 0; i < 10000; i++) {
                 // 创建classWriter对象，用于生成类的二进制字节码
                 ClassWriter classWriter = new ClassWriter(0);
-                // 创建对应的基本信息（版本号 1.8，修饰符，类名，）
+                // 创建对应的基本信息（版本号 1.8，修饰符，类名）
                 classWriter.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "Class" + i, null, "java/lang/Object", null);
                 // 返回byte[]
                 byte[] code = classWriter.toByteArray();
