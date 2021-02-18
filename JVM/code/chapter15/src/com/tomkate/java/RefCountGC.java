@@ -3,13 +3,14 @@ package com.tomkate.java;
 /**
  * 引用计数算法测试
  * -XX:+PrintGCDetails
+ *
  * @author Tom
  * @version 1.0
  * @date 2021/2/17 21:14
  */
 public class RefCountGC {
     // 这个成员属性的唯一作用就是占用一点内存
-    private byte[] bigSize = new byte[5*1024*1024];
+    private byte[] bigSize = new byte[5 * 1024 * 1024];
     // 引用
     Object reference = null;
 
@@ -22,5 +23,11 @@ public class RefCountGC {
         obj2 = null;
         // 显示的执行垃圾收集行为，判断obj1 和 obj2是否被回收？
         System.gc();
+
+        try {
+            Thread.sleep(10000000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 }
