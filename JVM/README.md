@@ -4465,7 +4465,7 @@ public class GCRootsTest {
 ````java
 /**
  * 内存溢出排查
- * -Xms8m -Xmx8m -XX:HeapDumpOnOutOfMemoryError
+ * -Xms8m -Xmx8m -XX:+HeapDumpOnOutOfMemoryError
  *
  * @author Tom
  * @version 1.0
@@ -4491,3 +4491,16 @@ public class HeapOOM {
 }
 ````
 
+上述代码就是不断的创建一个1M小字节数组，然后让内存溢出，我们需要限制一下内存大小，同时使用HeapDumpOnOutOfMemoryError将出错时候的dump文件输出
+
+````bash
+-Xms8m -Xmx8m -XX:+HeapDumpOnOutOfMemoryError
+````
+
+将生成的dump文件打开，然后点击Biggest Objects就能够看到超大对象
+
+![OOM](images/2021-02-18_114836.png)
+
+然后通过线程，还能够定位到哪里出现OOM
+
+![定位OOM线程](images/2021-02-18_115031.png)
