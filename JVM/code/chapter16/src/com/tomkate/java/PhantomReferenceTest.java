@@ -74,7 +74,7 @@ public class PhantomReferenceTest {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-
+            System.out.println("end!");
         }
     }
 }
